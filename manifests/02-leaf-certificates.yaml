@@ -25,7 +25,7 @@ metadata:
   name: mysql-tls
   namespace: <namespace>
 spec:
-  secretName: mysql-tls
+  secretName: mysql-tls #pragma: allowlist secret
   duration: 2160h           # 90d
   renewBefore: 720h         # 30d
   isCA: false
@@ -53,7 +53,7 @@ metadata:
   name: redis-tls
   namespace: <namespace>
 spec:
-  secretName: redis-tls
+  secretName: redis-tls #pragma: allowlist secret
   duration: 2160h
   renewBefore: 720h
   isCA: false
@@ -83,7 +83,7 @@ metadata:
   name: rabbitmq-tls
   namespace: <namespace>
 spec:
-  secretName: rabbitmq-tls
+  secretName: rabbitmq-tls #pragma: allowlist secret
   duration: 2160h
   renewBefore: 720h
   isCA: false
@@ -111,7 +111,7 @@ metadata:
   name: minio-tls
   namespace: <namespace>
 spec:
-  secretName: minio-tls
+  secretName: minio-tls #pragma: allowlist secret
   duration: 2160h
   renewBefore: 720h
   isCA: false
@@ -138,7 +138,7 @@ metadata:
   name: app-client-tls
   namespace: <app-namespace>
 spec:
-  secretName: app-client-tls
+  secretName: app-client-tls #pragma: allowlist secret
   duration: 2160h
   renewBefore: 360h         # 15d — shorter renewal window for the app-facing cert
   isCA: false

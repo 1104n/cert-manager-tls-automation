@@ -119,4 +119,4 @@ containers:
 volumes:
   - name: app-client-tls
     secret:
-      secretName: app-client-tls
+      secretName: app-client-tls #pragma: allowlist secret

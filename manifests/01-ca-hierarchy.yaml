@@ -30,7 +30,7 @@ metadata:
 spec:
   isCA: true
   commonName: root-ca
-  secretName: root-ca-secret
+  secretName: root-ca-secret #pragma: allowlist secret
   duration: 175200h        # 20y
   renewBefore: 8760h       # 1y
   privateKey:
@@ -49,7 +49,7 @@ metadata:
   name: root-ca-issuer
 spec:
   ca:
-    secretName: root-ca-secret
+    secretName: root-ca-secret #pragma: allowlist secret
 ---
 # ---- intermediate CA (10y) — this is the one every workload trusts ----
 apiVersion: cert-manager.io/v1
@@ -60,7 +60,7 @@ metadata:
 spec:
   isCA: true
   commonName: intermediate-ca
-  secretName: intermediate-ca-secret
+  secretName: intermediate-ca-secret #pragma: allowlist secret
   duration: 87600h         # 10y
   renewBefore: 8760h       # 1y
   privateKey:
@@ -80,7 +80,7 @@ metadata:
   name: shared-ca
 spec:
   ca:
-    secretName: intermediate-ca-secret
+    secretName: intermediate-ca-secret #pragma: allowlist secret
 ---
 # ---- optional: dedicated issuer wrapping the ROOT (not intermediate)
 #      secret. Useful for operators (e.g. Percona XtraDB Cluster) that
@@ -93,4 +93,4 @@ metadata:
   name: root-ca-passthrough
 spec:
   ca:
-    secretName: root-ca-secret
+    secretName: root-ca-secret #pragma: allowlist secret
