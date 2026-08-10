@@ -1,0 +1,122 @@
+# ---------------------------------------------------------------------------
+# 04-service-mounts.yaml
+#
+# Reference snippets only — merge each block into your own operator CR /
+# StatefulSet / Deployment. This file is NOT meant to be `kubectl apply -f`'d
+# as-is; it's a set of copy-paste fragments for wiring the certs from
+# 02-leaf-certificates.yaml into each workload.
+# ---------------------------------------------------------------------------
+
+# ============================================================
+# 1. OPERATOR-MANAGED DATABASE (e.g. Percona XtraDB Cluster, and similar
+#    operators that support a native issuer-config field)
+# ============================================================
+# Most database operators can be pointed at your own ClusterIssuer instead
+# of generating their own self-signed CA. Check your operator's CR schema
+# for a field like `spec.tls.issuerConf` (Percona XtraDB Cluster) — when
+# set, the operator still owns cert creation/renewal/pod-restart-on-rotate,
+# it just signs through your `shared-ca` (or `root-ca-passthrough`) instead.
+spec:
+  tls:
+    enabled: true
+    certValidityDuration: 2160h   # 90d, matches the other leaf certs
+    issuerConf:
+      name: shared-ca              # or root-ca-passthrough, see 01-ca-hierarchy.yaml
+      kind: ClusterIssuer
+      group: cert-manager.io
+  # sslSecretName / sslInternalSecretName left unset -> operator defaults
+  # to <cluster-name>-ssl / <cluster-name>-ssl-internal. Set explicitly if
+  # you want fixed names instead.
+  # caValidityDuration is NOT used in this mode — there's no operator-
+  # created CA when issuerConf is set, your intermediate CA already plays
+  # that role.
+
+# ============================================================
+# 2. REDIS — raw StatefulSet
+# ============================================================
+# spec.template.spec:
+containers:
+  - name: redis
+    args:
+      - --tls-port 6379
+      - --port 0                                   # disable plaintext
+      - --tls-cert-file /etc/certs/redis/tls.crt
+      - --tls-key-file /etc/certs/redis/tls.key
+      - --tls-ca-cert-file /etc/certs/redis/ca.crt
+      - --tls-auth-clients yes                      # enforce mTLS
+    volumeMounts:
+      - name: redis-tls
+        mountPath: /etc/certs/redis
+        readOnly: true
+volumes:
+  - name: redis-tls
+    secret:
+      secretName: redis-tls
+
+# ============================================================
+# 3. RABBITMQ — rabbitmq.conf (ConfigMap) + StatefulSet mount
+# ============================================================
+# rabbitmq.conf additions:
+#   listeners.ssl.default = 5671
+#   ssl_options.cacertfile = /etc/certs/rabbitmq/ca.crt
+#   ssl_options.certfile   = /etc/certs/rabbitmq/tls.crt
+#   ssl_options.keyfile    = /etc/certs/rabbitmq/tls.key
+#   ssl_options.verify     = verify_peer
+#   ssl_options.fail_if_no_peer_cert = true          # enforce mTLS
+#
+# StatefulSet:
+containers:
+  - name: rabbitmq
+    volumeMounts:
+      - name: rabbitmq-tls
+        mountPath: /etc/certs/rabbitmq
+        readOnly: true
+volumes:
+  - name: rabbitmq-tls
+    secret:
+      secretName: rabbitmq-tls
+
+# ============================================================
+# 4. MINIO — needs exact filenames public.crt / private.key / CAs/ca.crt.
+#    cert-manager's tls.crt/tls.key/ca.crt don't match those names, so
+#    remap them via a projected secret `items` list.
+# ============================================================
+containers:
+  - name: minio
+    volumeMounts:
+      - name: minio-certs
+        mountPath: /root/.minio/certs
+      - name: minio-ca
+        mountPath: /root/.minio/certs/CAs
+volumes:
+  - name: minio-certs
+    secret:
+      secretName: minio-tls
+      items:
+        - key: tls.crt
+          path: public.crt
+        - key: tls.key
+          path: private.key
+  - name: minio-ca
+    secret:
+      secretName: minio-tls
+      items:
+        - key: ca.crt
+          path: ca.crt
+
+# ============================================================
+# 5. YOUR APPLICATION — Deployment
+# ============================================================
+containers:
+  - name: app
+    env:
+      - name: TLS_CERT_DIR
+        value: /etc/certs/app
+    volumeMounts:
+      - name: app-client-tls
+        mountPath: /etc/certs/app
+        readOnly: true
+volumes:
+  - name: app-client-tls
+    secret:
+      secretName: app-client-tls

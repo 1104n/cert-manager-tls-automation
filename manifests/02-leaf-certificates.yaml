@@ -1,0 +1,162 @@
+# ---------------------------------------------------------------------------
+# 02-leaf-certificates.yaml
+#
+# Leaf (server/client) certificates for the services behind your shared CA.
+# Every value wrapped in <angle-brackets> is a placeholder — replace it with
+# your own namespace and service names before applying. Find/replace works
+# fine here, there's nothing environment-specific left once you do.
+#
+# A Certificate is namespace-scoped: the resulting Secret lands in whatever
+# namespace this object is created in, regardless of the ClusterIssuer being
+# cluster-scoped.
+#
+# NOTE on operator-managed databases (e.g. Percona XtraDB Cluster, most
+# Redis/RabbitMQ/MinIO operators): if your operator has a native
+# `spec.tls.issuerConf`-style field, let the operator create its own
+# Certificate against `shared-ca` instead of pre-creating one here — a
+# hand-authored Certificate with the same secret name will race the
+# operator's own reconciler. See manifests/04-service-mounts.yaml and
+# DEPLOY.md for the operator-managed path.
+# ---------------------------------------------------------------------------
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: mysql-tls
+  namespace: <namespace>
+spec:
+  secretName: mysql-tls
+  duration: 2160h           # 90d
+  renewBefore: 720h         # 30d
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+    - client auth            # needed for client-cert auth / cluster bus TLS
+  dnsNames:
+    - mysql.<namespace>.svc.cluster.local
+    - mysql.<namespace>.svc
+    - mysql
+  issuerRef:
+    name: shared-ca
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: redis-tls
+  namespace: <namespace>
+spec:
+  secretName: redis-tls
+  duration: 2160h
+  renewBefore: 720h
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+    - client auth            # needed if tls-auth-clients yes / cluster bus TLS
+  dnsNames:
+    - redis
+    - redis.<namespace>.svc
+    - redis.<namespace>.svc.cluster.local
+    - "*.redis.<namespace>.svc"
+    - "*.redis.<namespace>.svc.cluster.local"
+  issuerRef:
+    name: shared-ca
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: rabbitmq-tls
+  namespace: <namespace>
+spec:
+  secretName: rabbitmq-tls
+  duration: 2160h
+  renewBefore: 720h
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+    - client auth            # needed if ssl_options.verify = verify_peer on clients
+  dnsNames:
+    - rabbitmq
+    - rabbitmq.<namespace>.svc
+    - rabbitmq.<namespace>.svc.cluster.local
+  issuerRef:
+    name: shared-ca
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: minio-tls
+  namespace: <namespace>
+spec:
+  secretName: minio-tls
+  duration: 2160h
+  renewBefore: 720h
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth             # no client auth - MinIO doesn't mTLS its own clients here
+  dnsNames:
+    - minio
+    - minio.<namespace>.svc
+    - minio.<namespace>.svc.cluster.local
+  issuerRef:
+    name: shared-ca
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: app-client-tls
+  namespace: <app-namespace>
+spec:
+  secretName: app-client-tls
+  duration: 2160h
+  renewBefore: 360h         # 15d — shorter renewal window for the app-facing cert
+  isCA: false
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    rotationPolicy: Always
+  usages:
+    - digital signature
+    - key encipherment
+    - client auth             # cert your app presents to the backends above
+    - server auth              # drop this if your app never terminates its own TLS
+  dnsNames:
+    - app
+    - app.<app-namespace>
+    - app.<app-namespace>.svc
+    - app.<app-namespace>.svc.cluster.local
+  issuerRef:
+    name: shared-ca
+    kind: ClusterIssuer
+    group: cert-manager.io
