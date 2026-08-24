@@ -1,0 +1,84 @@
+name: Kubernetes Security
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "manifests/**/*.yaml"
+      - "manifests/**/*.yml"
+      - ".github/workflows/security.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "manifests/**/*.yaml"
+      - "manifests/**/*.yml"
+      - ".github/workflows/security.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Kubernetes manifests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz -o kubeconform.tar.gz
+          tar -xzf kubeconform.tar.gz kubeconform
+          sudo mv kubeconform /usr/local/bin/kubeconform
+
+      - name: Validate manifests
+        run: |
+          kubeconform             -strict             -summary             -ignore-missing-schemas             -kubernetes-version 1.32.0             manifests/
+
+  kube-linter:
+    name: Lint Kubernetes manifests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install kube-linter
+        run: |
+          curl -sSL https://github.com/stackrox/kube-linter/releases/latest/download/kube-linter-linux.tar.gz -o kube-linter.tar.gz
+          tar -xzf kube-linter.tar.gz
+          sudo mv kube-linter /usr/local/bin/kube-linter
+
+      - name: Run kube-linter
+        run: kube-linter lint manifests/
+
+  trivy:
+    name: Scan Infrastructure as Code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run Trivy configuration scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: misconfig,secret
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+  gitleaks:
+    name: Scan for secrets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
