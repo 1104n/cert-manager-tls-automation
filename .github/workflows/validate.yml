@@ -38,10 +38,26 @@ jobs:
           curl -sSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" -o kubeconform.tar.gz
           tar -xzf kubeconform.tar.gz kubeconform
           sudo install kubeconform /usr/local/bin/kubeconform
+          
+      - name: Validate Kubernetes manifests
+        run: |
+          # 04-service-mounts.yaml contains reference snippets,
+          # not standalone Kubernetes resources.
+          mapfile -d '' manifests < <(
+            find manifests -type f \( -name '*.yaml' -o -name '*.yml' \) \
+              ! -path 'manifests/04-service-mounts.yaml' \
+              -print0
+          )
+
+          if [ "${#manifests[@]}" -eq 0 ]; then
+            echo "No Kubernetes manifests found."
+            exit 0
+          fi
+          
       - name: Validate
         run: |
           kubeconform -strict -summary -ignore-missing-schemas \
-            -kubernetes-version "${KUBERNETES_VERSION}" manifests/*.yaml
+            -kubernetes-version "${KUBERNETES_VERSION}" "${manifests[@]}"
 
   lint:
     name: Lint deployable manifests
