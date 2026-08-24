@@ -1,17 +1,21 @@
-name: Kubernetes Security
+name: Security Scan
 
 on:
   push:
     branches: [main]
     paths:
-      - "manifests/**/*.yaml"
-      - "manifests/**/*.yml"
+      - "**/*.yaml"
+      - "**/*.yml"
+      - "**/*.md"
+      - "SECURITY.md"
       - ".github/workflows/security.yml"
   pull_request:
     branches: [main]
     paths:
-      - "manifests/**/*.yaml"
-      - "manifests/**/*.yml"
+      - "**/*.yaml"
+      - "**/*.yml"
+      - "**/*.md"
+      - "SECURITY.md"
       - ".github/workflows/security.yml"
   workflow_dispatch:
 
@@ -19,42 +23,27 @@ permissions:
   contents: read
 
 jobs:
-  validate:
-    name: Validate Kubernetes manifests
+  trivy:
+    name: Scan Infrastructure as Code
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+      - uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: misconfig,secret
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
 
-      - name: Install kubeconform
-        run: |
-          curl -sSL \
-            https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz \
-            -o kubeconform.tar.gz
-
-          tar -xzf kubeconform.tar.gz kubeconform
-          sudo mv kubeconform /usr/local/bin/kubeconform
-
-      - name: Validate Kubernetes manifests
-        run: |
-          # 04-service-mounts.yaml contains reference snippets,
-          # not standalone Kubernetes resources.
-          mapfile -d '' manifests < <(
-            find manifests -type f \( -name '*.yaml' -o -name '*.yml' \) \
-              ! -path 'manifests/04-service-mounts.yaml' \
-              -print0
-          )
-
-          if [ "${#manifests[@]}" -eq 0 ]; then
-            echo "No Kubernetes manifests found."
-            exit 0
-          fi
-
-          kubeconform \
-            -strict \
-            -summary \
-            -ignore-missing-schemas \
-            -kubernetes-version 1.32.0 \
-            "${manifests[@]}"
-
+  gitleaks:
+    name: Scan for secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

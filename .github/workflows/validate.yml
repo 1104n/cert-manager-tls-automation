@@ -1,0 +1,73 @@
+name: Validate Kubernetes Manifests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "manifests/**/*.yaml"
+      - "manifests/**/*.yml"
+      - ".github/workflows/validate.yml"
+      - "versions.env"
+      - "Makefile"
+  pull_request:
+    branches: [main]
+    paths:
+      - "manifests/**/*.yaml"
+      - "manifests/**/*.yml"
+      - ".github/workflows/validate.yml"
+      - "versions.env"
+      - "Makefile"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  KUBERNETES_VERSION: "1.32.0"
+  KUBECONFORM_VERSION: "v0.7.0"
+  KUBE_LINTER_VERSION: "v0.8.3"
+
+jobs:
+  validate:
+    name: Validate deployable manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install kubeconform
+        run: |
+          curl -sSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" -o kubeconform.tar.gz
+          tar -xzf kubeconform.tar.gz kubeconform
+          sudo install kubeconform /usr/local/bin/kubeconform
+          
+      - name: Validate Kubernetes manifests
+        run: |
+          # 04-service-mounts.yaml contains reference snippets,
+          # not standalone Kubernetes resources.
+          mapfile -d '' manifests < <(
+            find manifests -type f \( -name '*.yaml' -o -name '*.yml' \) \
+              ! -path 'manifests/04-service-mounts.yaml' \
+              -print0
+          )
+
+          if [ "${#manifests[@]}" -eq 0 ]; then
+            echo "No Kubernetes manifests found."
+            exit 0
+          fi
+          
+      - name: Validate
+        run: |
+          kubeconform -strict -summary -ignore-missing-schemas \
+            -kubernetes-version "${KUBERNETES_VERSION}" "${manifests[@]}"
+
+  lint:
+    name: Lint deployable manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install kube-linter
+        run: |
+          curl -sSL "https://github.com/stackrox/kube-linter/releases/download/${KUBE_LINTER_VERSION}/kube-linter-linux.tar.gz" -o kube-linter.tar.gz
+          tar -xzf kube-linter.tar.gz
+          sudo install kube-linter /usr/local/bin/kube-linter
+      - name: Lint
+        run: kube-linter lint manifests/*.yaml
