@@ -1,0 +1,60 @@
+name: Kubernetes Security
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "manifests/**/*.yaml"
+      - "manifests/**/*.yml"
+      - ".github/workflows/security.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "manifests/**/*.yaml"
+      - "manifests/**/*.yml"
+      - ".github/workflows/security.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Kubernetes manifests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install kubeconform
+        run: |
+          curl -sSL \
+            https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz \
+            -o kubeconform.tar.gz
+
+          tar -xzf kubeconform.tar.gz kubeconform
+          sudo mv kubeconform /usr/local/bin/kubeconform
+
+      - name: Validate Kubernetes manifests
+        run: |
+          # 04-service-mounts.yaml contains reference snippets,
+          # not standalone Kubernetes resources.
+          mapfile -d '' manifests < <(
+            find manifests -type f \( -name '*.yaml' -o -name '*.yml' \) \
+              ! -path 'manifests/04-service-mounts.yaml' \
+              -print0
+          )
+
+          if [ "${#manifests[@]}" -eq 0 ]; then
+            echo "No Kubernetes manifests found."
+            exit 0
+          fi
+
+          kubeconform \
+            -strict \
+            -summary \
+            -ignore-missing-schemas \
+            -kubernetes-version 1.32.0 \
+            "${manifests[@]}"
+
