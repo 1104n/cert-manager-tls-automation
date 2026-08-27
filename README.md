@@ -11,6 +11,15 @@ object storage, and your application — all signed by the same intermediate
 CA so every service trusts every other service without any manual cert
 handling.
 
+## Quick Start
+
+1. **Prerequisites installed**: cert-manager (required), trust-manager (optional but recommended), Stakater Reloader (optional)
+2. **Replace placeholders** in `manifests/` with your namespace and cluster names
+3. **Apply in order**: CA hierarchy → leaf certificates → trust bundle → wire into workloads
+4. **Label namespaces** that need the shared trust anchor (trust-manager requirement)
+
+See [DEPLOY.md](./DEPLOY.md) for the complete step-by-step walkthrough, verification commands, and troubleshooting.
+
 ## Architecture
 
 ```
@@ -20,7 +29,7 @@ cert-manager (ns: cert-manager)
 ├── root-ca-issuer (ClusterIssuer)       → wraps the root secret
 ├── intermediate-ca (Certificate, 10y)   → secret: intermediate-ca-secret
 └── shared-ca (ClusterIssuer)            → wraps the intermediate secret,
-                                            signs every leaf cert below
+                                             signs every leaf cert below
         │
         ├── mysql        (operator-managed, or manual Certificate)
         ├── redis-tls     (ns: <namespace>)      renewBefore: 720h  (30d)
@@ -33,13 +42,24 @@ cert-manager (ns: cert-manager)
 `rotationPolicy: Always`. Leaf certs are RSA 2048, `isCA: false`, all issued
 by the single `shared-ca` ClusterIssuer.
 
-**Why ECDSA P-384 for the CA and RSA 2048 for leaves?**
-- ECDSA P-384 is strong and fast for CA signing/verification, well suited
+### Why ECDSA P-384 for the CA and RSA 2048 for leaves?
+
+- **ECDSA P-384** is strong and fast for CA signing/verification, well suited
   to an internal Kubernetes CA.
-- RSA 2048 is the safer default for leaf certs — every common database,
+- **RSA 2048** is the safer default for leaf certs — every common database,
   broker, and TLS client library supports it without extra configuration,
   and it comfortably meets current TLS server-certificate guidance at
   lower CPU/storage cost than RSA 4096.
+
+### Trust Distribution with trust-manager
+
+[trust-manager](https://cert-manager.io/docs/trust/trust-manager/) automates the distribution of CA certificates to any namespace that needs them. Instead of manually copying secrets or hardcoding trust anchors into workloads, trust-manager watches the CA secrets and projects a ConfigMap into labeled namespaces:
+
+- **One source of truth**: The intermediate CA secret in `cert-manager` namespace
+- **Automatic sync**: Any rotation is immediately reflected in all target namespaces
+- **Least privilege**: Workloads never see the CA's private key, only the public certificate
+
+See [03-trust-bundle.yaml](./manifests/03-trust-bundle.yaml) and the "Trust Bundle Setup" section in [DEPLOY.md](./DEPLOY.md) for details.
 
 ## Per-service cert summary
 
