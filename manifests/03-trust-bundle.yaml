@@ -3,49 +3,119 @@
 #
 # Distributes the CA chain (root + intermediate) to any namespace that needs
 # to *verify* certificates but shouldn't mount the CA's private-key-bearing
-# Secret directly. Requires trust-manager:
+# Secret directly. Uses trust-manager (cert-manager's companion project):
 #
+#   https://cert-manager.io/docs/trust/trust-manager/
+#
+# Installation:
 #   helm repo add jetstack https://charts.jetstack.io
 #   helm repo update
 #   helm install trust-manager jetstack/trust-manager \
 #     --namespace cert-manager \
 #     --set app.trust.namespace=cert-manager
 #
-# Apply this after manifests/01-ca-hierarchy.yaml (it needs root-ca-secret
+# Apply this AFTER manifests/01-ca-hierarchy.yaml (it needs root-ca-secret
 # and intermediate-ca-secret to already exist).
+#
+# THEN label every namespace that needs the bundle:
+#   kubectl label namespace <namespace> trust-bundle=shared-ca-bundle
+#   kubectl label namespace <app-namespace> trust-bundle=shared-ca-bundle
+#
+# SECURITY MODEL:
+#   - trust-manager creates a ConfigMap (public certs only) in target namespaces
+#   - Workloads only need read access to their own namespace's ConfigMap
+#   - The CA private keys remain securely isolated in cert-manager namespace
+#   - Cross-namespace secret access is not required
 # ---------------------------------------------------------------------------
 
 apiVersion: trust.cert-manager.io/v1alpha1
 kind: Bundle
 metadata:
   name: shared-ca-bundle
+  namespace: cert-manager
 spec:
+  # Sources: collect certificates from these Secret objects in cert-manager namespace
   sources:
+    # Root certificate (20-year, signed by itself)
     - secret:
         name: root-ca-secret
         key: tls.crt
+    # Intermediate certificate (10-year, signed by root)
     - secret:
         name: intermediate-ca-secret
         key: tls.crt
+  
+  # Target: project the combined certificate chain into ConfigMaps
   target:
+    # ConfigMap name and key in each target namespace
     configMap:
-      key: ca-bundle.crt
+      name: shared-ca-bundle    # Name of the ConfigMap to create
+      key: ca-bundle.crt        # Key containing the combined PEM chain
+    
+    # Namespace selector: only project into namespaces with this label
     namespaceSelector:
       matchLabels:
         trust-bundle: shared-ca-bundle
+  
+  # How often to check for updates (default: 1h)
+  # Shorter intervals = faster CA rotation updates, but more API calls
+  refreshInterval: 1h
 
 ---
-# Label every namespace that needs the bundle. trust-manager only projects
-# the ConfigMap into namespaces matching the selector above — nothing
-# happens until these labels are applied, e.g.:
+# IMPORTANT: Label every namespace that needs the CA bundle.
 #
-#   kubectl label namespace <namespace>     trust-bundle=shared-ca-bundle
-#   kubectl label namespace <app-namespace> trust-bundle=shared-ca-bundle
+# trust-manager only creates the ConfigMap in namespaces with the matching label.
+# Before applying any workloads, run:
 #
-# Optionally, add a Reloader annotation to Deployments/StatefulSets in
-# those namespaces so they restart when the bundle ConfigMap changes (root
-# or intermediate re-key, or the one-time initial creation):
+#   kubectl label namespace <namespace> trust-bundle=shared-ca-bundle --overwrite
+#   kubectl label namespace <app-namespace> trust-bundle=shared-ca-bundle --overwrite
+#
+# Verify the ConfigMap exists:
+#
+#   kubectl get configmap shared-ca-bundle -n <namespace>
+#   kubectl get configmap shared-ca-bundle -n <app-namespace>
+#
+# Show the contents (root + intermediate cert in PEM format):
+#
+#   kubectl get configmap shared-ca-bundle -n <namespace> -o jsonpath='{.data.ca-bundle\.crt}' | head -10
+#
+# MOUNTING IN YOUR WORKLOAD:
+#
+# In your Deployment/StatefulSet spec, add:
+#
+#   volumes:
+#     - name: ca-trust
+#       configMap:
+#         name: shared-ca-bundle
+#   containers:
+#     - name: myapp
+#       volumeMounts:
+#         - name: ca-trust
+#           mountPath: /etc/ca
+#           readOnly: true
+#       # Your app can now use /etc/ca/ca-bundle.crt to verify peer certificates
+#
+# AUTO-RESTART ON BUNDLE UPDATE (with Stakater Reloader):
+#
+# Add this annotation to your Deployment/StatefulSet metadata:
 #
 #   metadata:
 #     annotations:
 #       configmap.reloader.stakater.com/reload: "shared-ca-bundle"
+#
+# This ensures pods restart if the CA bundle ConfigMap is updated (root/intermediate rotation).
+# Useful for apps that load ca.crt at startup and don't watch for file changes.
+#
+# TROUBLESHOOTING:
+#
+# - ConfigMap doesn't appear: Check that trust-manager is running
+#   kubectl get deployment -n cert-manager -l app=trust-manager
+#   kubectl logs -n cert-manager -l app=trust-manager
+#
+# - ConfigMap empty or outdated: Check that the source Secrets exist
+#   kubectl get secret root-ca-secret intermediate-ca-secret -n cert-manager
+#   kubectl describe configmap shared-ca-bundle -n <namespace>
+#
+# - Namespace label missing: Confirm the label exists
+#   kubectl get namespace <namespace> --show-labels
+#   kubectl label namespace <namespace> trust-bundle=shared-ca-bundle --overwrite

@@ -6,8 +6,8 @@ KUBECONFORM_VERSION ?= v0.7.0
 KUBE_LINTER_VERSION ?= v0.8.3
 
 # Timeouts to prevent hanging processes
-DOCKER_TIMEOUT ?= 300s
-TRIVY_TIMEOUT ?= 300s
+DOCKER_TIMEOUT ?= 600s
+TRIVY_TIMEOUT ?= 600s
 
 .PHONY: help validate lint security secrets test test-parallel test-serial pull-images clean
 
@@ -18,9 +18,9 @@ help:
 	@echo "make lint           - lint deployable Kubernetes manifests (kube-linter)"
 	@echo "make security       - run Trivy configuration scan"
 	@echo "make secrets        - run Gitleaks secret scan"
-	@echo "make test           - run all checks sequentially (default)"
-	@echo "make test-parallel  - run all checks in parallel for faster execution"
-	@echo "make test-serial    - explicitly run all checks sequentially"
+	@echo "make test           - run all checks in parallel for faster execution (default)"
+	@echo "make test-parallel  - run all checks concurrently (optimized for CI)"
+	@echo "make test-serial    - run all checks sequentially for clearer output"
 	@echo "make pull-images    - pre-pull Docker images for faster test execution"
 	@echo "make clean          - clean up temporary files and Docker images"
 
@@ -69,13 +69,14 @@ secrets:
 	@gitleaks detect --source . --no-banner
 	@echo "✓ Secret scan passed"
 
-# Serial execution (default) - runs checks one after another
+# Serial execution - runs checks one after another for clearer output
 test-serial: validate lint security secrets
 	@echo ""
 	@echo "✓ All checks passed (serial execution)"
 
 # Parallel execution - runs checks concurrently for faster overall execution
-test-parallel:
+# Pre-pulls images to avoid Docker image download bottlenecks
+test-parallel: pull-images
 	@echo "Running all checks in parallel..."
 	@trap "kill $$(jobs -p)" EXIT; \
 	$(MAKE) validate & \
@@ -86,8 +87,8 @@ test-parallel:
 	@echo ""
 	@echo "✓ All checks passed (parallel execution)"
 
-# Default to serial execution for safety and clearer output
-test: test-serial
+# Default to parallel execution for faster CI feedback
+test: test-parallel
 
 clean:
 	@echo "Cleaning up..."
